@@ -1,4 +1,4 @@
-# app_eda_pdfs_streamlit_completo_groq.py
+# app_eda_pdfs_streamlit_completo_final.py
 
 import os
 import re
@@ -22,13 +22,13 @@ from transformers import BertTokenizerFast
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy.cluster.hierarchy import linkage, dendrogram
 
-# === Configurações ===
+# === Configurações iniciais ===
 MODEL_NAME = "bert-base-uncased"
 N_TOPICS = 5
 
 nltk.download('stopwords')
 
-# === Funções ===
+# === Funções auxiliares ===
 
 def extrair_texto_pdf(uploaded_file):
     texto = ""
@@ -145,25 +145,23 @@ def resumir_com_groq(texto, api_key, modelo="meta-llama/llama-4-scout-17b-16e-in
     else:
         raise Exception(f"Erro na chamada da API Groq: {response.status_code} - {response.text}")
 
-# === Streamlit app ===
+# === Início do App Streamlit ===
 
 st.set_page_config(page_title="EDA PDFs + Groq Summarization", layout="wide")
-st.title("📄 Análise Técnica de PDFs com Upload + Reconstrução de Tokens + Resumo via Groq")
+st.title("📄 Análise Técnica de PDFs - Upload + Tokens + Tópicos + Resumo via Groq")
 
 uploaded_files = st.sidebar.file_uploader("📂 Faça upload de um ou mais PDFs", type=['pdf'], accept_multiple_files=True)
 
 if not uploaded_files:
-    st.warning("Por favor, envie pelo menos um arquivo PDF.")
+    st.warning("🚨 Por favor, envie pelo menos um arquivo PDF.")
     st.stop()
 
 file_names = [f.name for f in uploaded_files]
 selected_file = st.sidebar.selectbox("Escolha o PDF para análise:", file_names)
 
-texts = []
-for f in uploaded_files:
-    texto_original = extrair_texto_pdf(f)
-    texts.append(texto_original)
+texts = [extrair_texto_pdf(f) for f in uploaded_files]
 
+# === Processamento do PDF selecionado ===
 index_selected = file_names.index(selected_file)
 texto_original_selected = texts[index_selected]
 idioma_detectado = detectar_idioma(texto_original_selected)
@@ -171,66 +169,72 @@ idioma = 'portuguese' if idioma_detectado.startswith('pt') else 'english'
 stop_words_set = set(stopwords.words(idioma))
 texto_limpo_selected = limpar_texto(texto_original_selected)
 
+# === Tokenização ===
 tokenizer = BertTokenizerFast.from_pretrained(MODEL_NAME)
 tokens = tokenizer.tokenize(texto_limpo_selected)
 tokens_reconstruidos = reconstruir_tokens_com_offset(texto_limpo_selected, tokenizer)
 
+# === Contagens ===
 contagem_tokens = Counter(tokens)
 contagem_tokens_reconstruidos = Counter(tokens_reconstruidos)
 
+# === Frequências ===
 frequencia_com_stopwords = dict(contagem_tokens)
-frequencia_sem_stopwords = {word: freq for word, freq in contagem_tokens.items() if word not in stop_words_set}
+frequencia_sem_stopwords = {w: f for w, f in contagem_tokens.items() if w not in stop_words_set}
 frequencia_com_stopwords_reconstruidos = dict(contagem_tokens_reconstruidos)
-frequencia_sem_stopwords_reconstruidos = {word: freq for word, freq in contagem_tokens_reconstruidos.items() if word not in stop_words_set}
+frequencia_sem_stopwords_reconstruidos = {w: f for w, f in contagem_tokens_reconstruidos.items() if w not in stop_words_set}
 
+# === Exibição ===
 st.header(f"📚 Análise do PDF: `{selected_file}`")
 
 col1, col2 = st.columns(2)
-with col1:
-    st.metric("🗣️ Idioma detectado", idioma_detectado.upper())
-with col2:
-    st.metric("🧩 Total de tokens WordPiece", len(tokens))
+col1.metric("🗣️ Idioma detectado", idioma_detectado.upper())
+col2.metric("🧩 Tokens WordPiece", len(tokens))
 
+# === Resumo via Groq ===
 st.subheader("📜 Resumo Inteligente via Groq")
 
 try:
     api_key_groq = st.secrets["GROQ_API_KEY"]
 
-    with st.spinner("Chamando a API Groq para gerar resumo..."):
+    with st.spinner("Chamando a API Groq para gerar o resumo..."):
         resumo = resumir_com_groq(texto_limpo_selected, api_key_groq)
         st.success(resumo)
 
 except KeyError:
-    st.error("🚨 A chave 'GROQ_API_KEY' não foi encontrada em st.secrets. Configure o arquivo `.streamlit/secrets.toml` corretamente.")
+    st.error("🚨 A chave 'GROQ_API_KEY' não foi encontrada no secrets. Configure corretamente o `.streamlit/secrets.toml`.")
 except Exception as e:
-    st.error(f"Erro ao gerar resumo: {e}")
+    st.error(f"Erro na API Groq: {e}")
 
 st.divider()
 
-st.subheader("📈 Frequência de Palavras (WordPiece e Reconstruídos)")
+# === Frequência e Nuvens ===
+st.subheader("📈 Frequência de Palavras WordPiece")
+plotar_top_palavras(frequencia_com_stopwords, "Top WordPiece com stopwords")
+plotar_top_palavras(frequencia_sem_stopwords, "Top WordPiece sem stopwords")
 
-plotar_top_palavras(frequencia_com_stopwords, "Top Palavras WordPiece (com stopwords)")
-plotar_top_palavras(frequencia_com_stopwords_reconstruidos, "Top Palavras Reconstruídas (com stopwords)")
+st.subheader("📈 Frequência de Palavras Reconstruídas")
+plotar_top_palavras(frequencia_com_stopwords_reconstruidos, "Top Reconstruídas com stopwords")
+plotar_top_palavras(frequencia_sem_stopwords_reconstruidos, "Top Reconstruídas sem stopwords")
 
-st.subheader("☁️ Nuvens de Palavras (WordPiece e Reconstruídos)")
+st.subheader("☁️ Nuvens de Palavras")
+gerar_nuvem_palavras(frequencia_sem_stopwords, "Nuvem WordPiece")
+gerar_nuvem_palavras(frequencia_sem_stopwords_reconstruidos, "Nuvem Reconstruída")
 
-gerar_nuvem_palavras(frequencia_sem_stopwords, "Nuvem WordPiece sem Stopwords")
-gerar_nuvem_palavras(frequencia_sem_stopwords_reconstruidos, "Nuvem Reconstruída sem Stopwords")
-
-st.subheader("🔵 Distribuição do Tamanho dos Tokens")
-
+st.subheader("🔵 Distribuição dos Tamanhos dos Tokens")
 analisar_tamanho_tokens(tokens, "Distribuição WordPiece")
 analisar_tamanho_tokens(tokens_reconstruidos, "Distribuição Tokens Reconstruídos")
 
+# === Tópicos e Dendrograma ===
 st.subheader("🧠 Modelagem Global de Tópicos")
 
 texts_limpos = [limpar_texto(t) for t in texts]
 topicos, coerencia = modelar_topicos_globais(texts_limpos, N_TOPICS)
 
-st.write(f"🔍 **Coerência dos tópicos:** {coerencia:.4f}")
+st.write(f"🔍 Coerência dos tópicos: **{coerencia:.4f}**")
 for idx, topico in enumerate(topicos):
-    st.info(f"**Tópico {idx+1}:** {', '.join(topico)}")
+    st.info(f"Tópico {idx+1}: {', '.join(topico)}")
 
 st.subheader("🌳 Dendrograma de Palavras-Chave")
-
 gerar_dendrograma(texts_limpos)
+
