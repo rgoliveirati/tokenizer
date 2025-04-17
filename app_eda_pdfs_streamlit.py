@@ -20,6 +20,10 @@ from sklearn.decomposition import LatentDirichletAllocation
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy import stats
 nltk.download("punkt"); nltk.download("averaged_perceptron_tagger"); nltk.download("stopwords")
+try:
+    nltk.data.find("tokenizers/punkt_tab")
+except LookupError:
+    nltk.download("punkt_tab")
 
 # === CONFIG =====================================================
 MODEL_NAME = "bert-base-uncased"
