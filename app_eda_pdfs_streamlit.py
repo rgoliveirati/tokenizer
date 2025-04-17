@@ -1,5 +1,3 @@
-# app_eda_pdfs_streamlit_completo_final_final.py
-
 # === IMPORTAÇÕES ===
 import os
 import re
@@ -22,6 +20,7 @@ from langdetect import detect
 from transformers import BertTokenizerFast
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy.cluster.hierarchy import linkage, dendrogram
+from scipy import stats
 
 # === CONFIGURAÇÕES ===
 MODEL_NAME = "bert-base-uncased"
@@ -64,7 +63,7 @@ def plotar_top_palavras(freq_dict, title, n=20):
     ax.set_title(title)
     st.pyplot(fig)
 
-def analisar_tamanho_tokens(tokens, title):
+def analisar_tamanho_tokens_lista(tokens, title):
     tamanhos = [len(token) for token in tokens]
     fig, ax = plt.subplots(figsize=(10,6))
     sns.histplot(tamanhos, bins=20, kde=True, ax=ax)
@@ -72,6 +71,31 @@ def analisar_tamanho_tokens(tokens, title):
     ax.set_xlabel("Tamanho do Token")
     ax.set_ylabel("Frequência")
     st.pyplot(fig)
+    return tamanhos
+
+def analise_estatistica(nome, tamanhos):
+    if len(tamanhos) == 0:
+        return {
+            "Nome": nome,
+            "Total": 0,
+            "Média": np.nan,
+            "Mediana": np.nan,
+            "Moda": np.nan,
+            "Mínimo": np.nan,
+            "Máximo": np.nan,
+            "Desvio Padrão": np.nan
+        }
+    else:
+        return {
+            "Nome": nome,
+            "Total": len(tamanhos),
+            "Média": np.mean(tamanhos),
+            "Mediana": np.median(tamanhos),
+            "Moda": stats.mode(tamanhos, keepdims=False).mode if len(stats.mode(tamanhos, keepdims=False).mode) > 0 else np.nan,
+            "Mínimo": np.min(tamanhos),
+            "Máximo": np.max(tamanhos),
+            "Desvio Padrão": np.std(tamanhos)
+        }
 
 def reconstruir_tokens_com_offset(texto, tokenizer):
     encoding = tokenizer(texto, return_offsets_mapping=True, add_special_tokens=True)
@@ -101,15 +125,7 @@ def modelar_topicos_globais(lista_textos, n_topics):
     topicos = []
     for idx, topic in enumerate(lda.components_):
         topicos.append([palavras[i] for i in topic.argsort()[:-11:-1]])
-    coerencia = calcular_coerencia_topicos(lda, X)
-    return topicos, coerencia
-
-def calcular_coerencia_topicos(modelo_lda, matriz_X):
-    topico_distribuicao = modelo_lda.transform(matriz_X)
-    similaridade = cosine_similarity(topico_distribuicao)
-    tril = np.tril(similaridade, k=-1)
-    coerencia = tril.sum() / (tril != 0).sum()
-    return coerencia
+    return topicos
 
 def gerar_dendrograma(lista_textos, top_n_palavras=50):
     vectorizer = TfidfVectorizer(stop_words='english', max_features=top_n_palavras)
@@ -142,10 +158,9 @@ def resumir_com_groq(texto, api_key, modelo="meta-llama/llama-4-scout-17b-16e-in
     else:
         raise Exception(f"Erro na API Groq: {response.status_code} - {response.text}")
 
-# === APP STREAMLIT ===
-
-st.set_page_config(page_title="EDA PDFs + Tokens + Groq Summary", layout="wide")
-st.title("📄 EDA Técnica de PDFs - Tokenização, Reconstrução, Tópicos, Resumo via Groq")
+# === STREAMLIT APP ===
+st.set_page_config(page_title="📄 EDA PDFs Completa + Resumo Groq", layout="wide")
+st.title("📄 Análise Técnica Completa de PDFs")
 
 uploaded_files = st.sidebar.file_uploader("📂 Upload de PDFs", type=["pdf"], accept_multiple_files=True)
 
@@ -155,7 +170,6 @@ if not uploaded_files:
 
 file_names = [f.name for f in uploaded_files]
 selected_file = st.sidebar.selectbox("📚 Escolha o PDF:", file_names)
-
 texts = [extrair_texto_pdf(f) for f in uploaded_files]
 
 index_selected = file_names.index(selected_file)
@@ -169,24 +183,23 @@ tokenizer = BertTokenizerFast.from_pretrained(MODEL_NAME)
 tokens = tokenizer.tokenize(texto_limpo_selected)
 tokens_reconstruidos = reconstruir_tokens_com_offset(texto_limpo_selected, tokenizer)
 
-# === Frequência WordPiece ===
+# Frequência
 contagem_tokens = Counter(tokens)
+contagem_tokens_reconstruidos = Counter(tokens_reconstruidos)
+
+# Separar com e sem stopwords
 frequencia_com_stopwords = dict(contagem_tokens)
 frequencia_sem_stopwords = {w: f for w, f in contagem_tokens.items() if w not in stop_words_set}
-
-# === Frequência Reconstruídos ===
-contagem_tokens_reconstruidos = Counter(tokens_reconstruidos)
 frequencia_com_stopwords_reconstruidos = dict(contagem_tokens_reconstruidos)
 frequencia_sem_stopwords_reconstruidos = {w: f for w, f in contagem_tokens_reconstruidos.items() if w not in stop_words_set}
 
-# === Exibição Geral ===
-
+# === EXIBIÇÃO ===
 st.header(f"📚 PDF Analisado: `{selected_file}`")
 col1, col2 = st.columns(2)
 col1.metric("🧩 Tokens WordPiece", len(tokens))
 col2.metric("🧩 Tokens Reconstruídos", len(tokens_reconstruidos))
 
-# === Resumo Inteligente ===
+# === RESUMO INTELIGENTE ===
 st.subheader("📜 Resumo Inteligente via Groq")
 try:
     api_key_groq = st.secrets["GROQ_API_KEY"]
@@ -198,37 +211,43 @@ except Exception as e:
 
 st.divider()
 
-# === WordPiece ===
-st.subheader("📈 Frequência de Palavras WordPiece")
+# === FREQUÊNCIA E NUVENS ===
+st.subheader("📈 WordPiece - Frequência e Nuvem")
 plotar_top_palavras(frequencia_com_stopwords, "Top WordPiece (com stopwords)")
 plotar_top_palavras(frequencia_sem_stopwords, "Top WordPiece (sem stopwords)")
-
-st.subheader("☁️ Nuvens de Palavras WordPiece")
 gerar_nuvem_palavras(frequencia_com_stopwords, "Nuvem WordPiece (com stopwords)")
 gerar_nuvem_palavras(frequencia_sem_stopwords, "Nuvem WordPiece (sem stopwords)")
 
-st.subheader("🔵 Distribuição WordPiece")
-analisar_tamanho_tokens(tokens, "Distribuição WordPiece")
+st.subheader("📈 Reconstruídos - Frequência e Nuvem")
+plotar_top_palavras(frequencia_com_stopwords_reconstruidos, "Top Reconstruídos (com stopwords)")
+plotar_top_palavras(frequencia_sem_stopwords_reconstruidos, "Top Reconstruídos (sem stopwords)")
+gerar_nuvem_palavras(frequencia_com_stopwords_reconstruidos, "Nuvem Reconstruídos (com stopwords)")
+gerar_nuvem_palavras(frequencia_sem_stopwords_reconstruidos, "Nuvem Reconstruídos (sem stopwords)")
 
-# === Reconstruídos ===
-st.subheader("📈 Frequência de Palavras Reconstruídas")
-plotar_top_palavras(frequencia_com_stopwords_reconstruidos, "Top Reconstruídas (com stopwords)")
-plotar_top_palavras(frequencia_sem_stopwords_reconstruidos, "Top Reconstruídas (sem stopwords)")
+# === DISTRIBUIÇÕES ===
+st.subheader("🔵 Distribuição de Tamanhos dos Tokens")
+tam_wc = analisar_tamanho_tokens_lista(tokens, "Distribuição WordPiece")
+tam_ws = analisar_tamanho_tokens_lista([t for t in tokens if t not in stop_words_set], "Distribuição WordPiece sem Stopwords")
+tam_rc = analisar_tamanho_tokens_lista(tokens_reconstruidos, "Distribuição Reconstruídos")
+tam_rs = analisar_tamanho_tokens_lista([t for t in tokens_reconstruidos if t not in stop_words_set], "Distribuição Reconstruídos sem Stopwords")
 
-st.subheader("☁️ Nuvens de Palavras Reconstruídas")
-gerar_nuvem_palavras(frequencia_com_stopwords_reconstruidos, "Nuvem Reconstruída (com stopwords)")
-gerar_nuvem_palavras(frequencia_sem_stopwords_reconstruidos, "Nuvem Reconstruída (sem stopwords)")
-
-st.subheader("🔵 Distribuição Reconstruída")
-analisar_tamanho_tokens(tokens_reconstruidos, "Distribuição Tokens Reconstruídos")
+# === TABELA ESTATÍSTICA ===
+st.subheader("📊 Tabela Estatística dos Tokens")
+dados_estat = [
+    analise_estatistica("WordPiece (com stopwords)", tam_wc),
+    analise_estatistica("WordPiece (sem stopwords)", tam_ws),
+    analise_estatistica("Reconstruídos (com stopwords)", tam_rc),
+    analise_estatistica("Reconstruídos (sem stopwords)", tam_rs),
+]
+df_estat = pd.DataFrame(dados_estat)
+st.dataframe(df_estat)
 
 st.divider()
 
-# === Tópicos + Dendrograma ===
-st.subheader("🧠 Modelagem Global de Tópicos")
+# === TÓPICOS E DENDROGRAMA ===
+st.subheader("🧠 Modelagem de Tópicos Global")
 texts_limpos = [limpar_texto(t) for t in texts]
-topicos, coerencia = modelar_topicos_globais(texts_limpos, N_TOPICS)
-st.write(f"🔍 Coerência: {coerencia:.4f}")
+topicos = modelar_topicos_globais(texts_limpos, N_TOPICS)
 for idx, topico in enumerate(topicos):
     st.info(f"Tópico {idx+1}: {', '.join(topico)}")
 
