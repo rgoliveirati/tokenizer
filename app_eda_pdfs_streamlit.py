@@ -86,16 +86,19 @@ def analise_estatistica(nome, tamanhos):
             "Desvio Padrão": np.nan
         }
     else:
+        moda_result = stats.mode(tamanhos, keepdims=False)
+        moda_valor = moda_result.mode if isinstance(moda_result.mode, (int, np.integer)) else moda_result.mode[0]
         return {
             "Nome": nome,
             "Total": len(tamanhos),
             "Média": np.mean(tamanhos),
             "Mediana": np.median(tamanhos),
-            "Moda": stats.mode(tamanhos, keepdims=False).mode if len(stats.mode(tamanhos, keepdims=False).mode) > 0 else np.nan,
+            "Moda": moda_valor,
             "Mínimo": np.min(tamanhos),
             "Máximo": np.max(tamanhos),
             "Desvio Padrão": np.std(tamanhos)
         }
+
 
 def reconstruir_tokens_com_offset(texto, tokenizer):
     encoding = tokenizer(texto, return_offsets_mapping=True, add_special_tokens=True)
