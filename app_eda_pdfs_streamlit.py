@@ -193,17 +193,17 @@ with col2:
 
 st.subheader("📜 Resumo Inteligente via Groq")
 
-api_key_groq = st.secrets["GROQ_API_KEY"] if "GROQ_API_KEY" in st.secrets else st.text_input("Digite sua GROQ API KEY:", type="password")
+try:
+    api_key_groq = st.secrets["GROQ_API_KEY"]
 
-if api_key_groq:
-    with st.spinner("Chamando a API Groq..."):
-        try:
-            resumo = resumir_com_groq(texto_limpo_selected, api_key_groq)
-            st.success(resumo)
-        except Exception as e:
-            st.error(f"Erro: {e}")
-else:
-    st.warning("Insira a sua chave de API do Groq para gerar o resumo.")
+    with st.spinner("Chamando a API Groq para gerar resumo..."):
+        resumo = resumir_com_groq(texto_limpo_selected, api_key_groq)
+        st.success(resumo)
+
+except KeyError:
+    st.error("🚨 A chave 'GROQ_API_KEY' não foi encontrada em st.secrets. Configure o arquivo `.streamlit/secrets.toml` corretamente.")
+except Exception as e:
+    st.error(f"Erro ao gerar resumo: {e}")
 
 st.divider()
 
