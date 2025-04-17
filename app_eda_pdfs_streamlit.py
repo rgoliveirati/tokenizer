@@ -22,8 +22,18 @@ from sklearn.decomposition import LatentDirichletAllocation
 from scipy.cluster.hierarchy import linkage, dendrogram
 from scipy import stats
 
-# --- baixar recursos NLTK ---
-nltk.download("punkt"); nltk.download("averaged_perceptron_tagger"); nltk.download("stopwords")
+# --- baixar recursos NLTK --------------------------------------
+nltk.download("punkt")
+nltk.download("stopwords")
+
+# tagger padrão + novo pacote segmentado por idioma
+nltk.download("averaged_perceptron_tagger")
+try:
+    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+except LookupError:
+    nltk.download("averaged_perceptron_tagger_eng")
+
+# sentence abbrev tables (punkt_tab)
 try:
     nltk.data.find("tokenizers/punkt_tab")
 except LookupError:
@@ -32,13 +42,13 @@ except LookupError:
 # === CONFIG =====================================================
 MODEL_NAME = "bert-base-uncased"
 N_TOPICS   = 5
-TOP_N      = 20        # top barras/n‑grams
+TOP_N      = 20
 
-# --- carrega spaCy PT se disponível ---
+# --- carrega spaCy PT se disponível -----------------------------
 try:
     nlp_pt = spacy.load("pt_core_news_sm")
 except Exception:
-    nlp_pt = None  # fallback
+    nlp_pt = None
 
 # ================================================================
 # ------------------ FUNÇÕES UTILITÁRIAS -------------------------
@@ -49,8 +59,10 @@ def extrair_texto_pdf(file):
     return txt
 
 def detectar_idioma(txt):
-    try:    return detect(txt)
-    except: return "en"
+    try:
+        return detect(txt)
+    except:
+        return "en"
 
 def limpar_texto(t):
     t = t.lower()
@@ -180,7 +192,8 @@ tokens_rec=tokens_reconstruidos(texto,tok)
 # Sidebar – métricas rápidas
 metrics=gerar_metricas(texto,tokens_rec,lang)
 st.sidebar.markdown("### 📏 Métricas do PDF")
-for k,v in metrics.items(): st.sidebar.write(f"**{k.replace('_',' ')}:** {v}")
+for k,v in metrics.items():
+    st.sidebar.write(f"**{k.replace('_',' ')}:** {v}")
 
 # Cabeçalho
 st.header(f"📚 PDF: `{pdf_sel}` — Idioma: **{lang.upper()}**")
