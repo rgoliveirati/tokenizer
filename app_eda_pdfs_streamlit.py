@@ -6,7 +6,7 @@
 # ---------------------------------------------------------------
 
 # === IMPORTS ====================================================
-import re, string, json, requests, os
+import re, string, json, requests
 import pandas as pd, numpy as np
 import matplotlib.pyplot as plt; import seaborn as sns
 from collections import Counter
@@ -25,19 +25,11 @@ from scipy import stats
 # --- baixar recursos NLTK --------------------------------------
 nltk.download("punkt")
 nltk.download("stopwords")
-
-# tagger padrão + novo pacote segmentado por idioma
 nltk.download("averaged_perceptron_tagger")
-try:
-    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
-except LookupError:
-    nltk.download("averaged_perceptron_tagger_eng")
-
-# sentence abbrev tables (punkt_tab)
-try:
-    nltk.data.find("tokenizers/punkt_tab")
-except LookupError:
-    nltk.download("punkt_tab")
+try: nltk.data.find("taggers/averaged_perceptron_tagger_eng")
+except LookupError: nltk.download("averaged_perceptron_tagger_eng")
+try: nltk.data.find("tokenizers/punkt_tab")
+except LookupError: nltk.download("punkt_tab")
 
 # === CONFIG =====================================================
 MODEL_NAME = "bert-base-uncased"
@@ -45,24 +37,17 @@ N_TOPICS   = 5
 TOP_N      = 20
 
 # --- carrega spaCy PT se disponível -----------------------------
-try:
-    nlp_pt = spacy.load("pt_core_news_sm")
-except Exception:
-    nlp_pt = None
+try:    nlp_pt = spacy.load("pt_core_news_sm")
+except: nlp_pt = None
 
 # ================================================================
 # ------------------ FUNÇÕES UTILITÁRIAS -------------------------
 def extrair_texto_pdf(file):
-    txt = ""
-    for p in PyPDF2.PdfReader(file).pages:
-        txt += p.extract_text() + " "
-    return txt
+    return " ".join(p.extract_text() for p in PyPDF2.PdfReader(file).pages)
 
 def detectar_idioma(txt):
-    try:
-        return detect(txt)
-    except:
-        return "en"
+    try: return detect(txt)
+    except: return "en"
 
 def limpar_texto(t):
     t = t.lower()
@@ -94,15 +79,16 @@ def pos_counts(tokens, lang):
             if tg=="IN":           preps+=1
     return nouns,verbs,preps
 
-def gerar_metricas(txt_cln, tokens, lang):
-    sents = sentencas(txt_cln, lang)
-    num_sent = len(sents)
-    mean_sent = np.mean([len(tokens_palavras(s,lang)) for s in sents]) if num_sent else 0
-    num_tok = len(tokens); mean_tok = num_tok/num_sent if num_sent else 0
-    freq = Counter(tokens)
-    top10  = ", ".join([w for w,_ in freq.most_common(10)])
-    low10  = ", ".join([w for w,_ in freq.most_common()[-10:]]) if len(freq)>=10 else ", ".join(freq)
-    n,v,p = pos_counts(tokens, lang)
+def gerar_metricas(txt_raw, tokens, lang):
+    sents      = sentencas(txt_raw, lang)                    # <-- usa texto bruto
+    num_sent   = len(sents)
+    mean_sent  = np.mean([len(tokens_palavras(s,lang)) for s in sents]) if num_sent else 0
+    num_tok    = len(tokens)
+    mean_tok   = num_tok/num_sent if num_sent else 0
+    freq       = Counter(tokens)
+    top10      = ", ".join([w for w,_ in freq.most_common(10)])
+    low10      = ", ".join([w for w,_ in freq.most_common()[-10:]]) if len(freq)>=10 else ", ".join(freq)
+    n,v,p      = pos_counts(tokens, lang)
     return dict(Nº_Sentenças=num_sent, Média_Sent_Len=round(mean_sent,2),
                 Nº_Tokens=num_tok, Média_Tokens_por_Sent=round(mean_tok,2),
                 Top10=top10, Down10=low10,
@@ -111,13 +97,11 @@ def gerar_metricas(txt_cln, tokens, lang):
 # ------------------ WordPiece reconstrutor ----------------------
 def tokens_reconstruidos(txt, tokenizer):
     enc = tokenizer(txt, return_offsets_mapping=True, add_special_tokens=True)
-    toks = tokenizer.convert_ids_to_tokens(enc["input_ids"])
-    offs = enc["offset_mapping"]
-    cur, out = "", []
+    toks, offs = tokenizer.convert_ids_to_tokens(enc["input_ids"]), enc["offset_mapping"]
+    out, cur = [], ""
     for t,(s,e) in zip(toks,offs):
         if t in ("[CLS]","[SEP]"): continue
-        if t.startswith("##"):
-            cur += t[2:]
+        if t.startswith("##"): cur += t[2:]
         else:
             if cur: out.append(cur)
             cur = t
@@ -125,8 +109,7 @@ def tokens_reconstruidos(txt, tokenizer):
     return out
 
 # ------------------ n‑grams & tópicos ---------------------------
-def ngram_freq(toks,n):
-    return Counter([" ".join(toks[i:i+n]) for i in range(len(toks)-n+1)])
+def ngram_freq(toks,n): return Counter(" ".join(toks[i:i+n]) for i in range(len(toks)-n+1))
 
 def topicos_globais(textos, n_topics):
     vec = CountVectorizer(stop_words="english"); X = vec.fit_transform(textos)
@@ -182,22 +165,21 @@ names=[u.name for u in upl]
 pdf_sel=st.sidebar.selectbox("Escolha o PDF:", names)
 idx=names.index(pdf_sel); texto_raw=extrair_texto_pdf(upl[idx])
 
-lang=detectar_idioma(texto_raw)
-stop=set(stopwords.words("portuguese" if lang.startswith("pt") else "english"))
-tok=BertTokenizerFast.from_pretrained(MODEL_NAME)
-texto=limpar_texto(texto_raw)
-tokens_wp=tok.tokenize(texto)
-tokens_rec=tokens_reconstruidos(texto,tok)
+lang = detectar_idioma(texto_raw)
+stop = set(stopwords.words("portuguese" if lang.startswith("pt") else "english"))
+tok  = BertTokenizerFast.from_pretrained(MODEL_NAME)
+texto = limpar_texto(texto_raw)
+tokens_wp  = tok.tokenize(texto)
+tokens_rec = tokens_reconstruidos(texto, tok)
 
-# Sidebar – métricas rápidas
-metrics=gerar_metricas(texto,tokens_rec,lang)
-st.sidebar.markdown("### 📏 Métricas do PDF")
-for k,v in metrics.items():
-    st.sidebar.write(f"**{k.replace('_',' ')}:** {v}")
+# Sidebar – métricas rápidas (agora usa texto_raw)
+metrics = gerar_metricas(texto_raw, tokens_rec, lang)
+st.sidebar.markdown("### 📏 Métricas do PDF")
+for k,v in metrics.items(): st.sidebar.write(f"**{k.replace('_',' ')}:** {v}")
 
 # Cabeçalho
 st.header(f"📚 PDF: `{pdf_sel}` — Idioma: **{lang.upper()}**")
-c1,c2=st.columns(2)
+c1,c2 = st.columns(2)
 c1.metric("Tokens WordPiece", len(tokens_wp))
 c2.metric("Tokens Reconstr.", len(tokens_rec))
 
@@ -215,11 +197,11 @@ def blocos(tokens,label):
     barra(freq_all,f"Top {label} (com stopwords)","Barra = contagem.")
     barra(freq_fil,f"Top {label} (sem stopwords)","Stopwords removidas.")
     nuvem(freq_all,f"Nuvem {label} (com stopwords)","Palavras maiores = mais frequentes.")
-    nuvem(freq_fil,f"Nuvem {label} (sem stopwords)","Realça termos-chave.")
+    nuvem(freq_fil,f"Nuvem {label} (sem stopwords)","Realça termos‑chave.")
     for n in (2,3):
         ng=ngram_freq(tokens,n)
         if ng:
-            barra(ng,f"Top {n}-grams ({label})",f"Barras = {n}-grams mais frequentes.")
+            barra(ng,f"Top {n}-grams ({label})",f"{n}-grams mais frequentes.")
             nuvem(ng,f"Nuvem {n}-grams ({label})","")
 
 st.subheader("📈 WordPiece");       blocos(tokens_wp,"WordPiece")
@@ -227,10 +209,10 @@ st.subheader("📈 Reconstruídos");   blocos(tokens_rec,"Reconstruídos")
 
 # Distribuições
 st.subheader("🔵 Distribuições de Tamanho")
-histo([len(t) for t in tokens_wp],"WordPiece","Tamanho em caracteres.")
-histo([len(t) for t in tokens_wp if t not in stop],"WordPiece (sem stopwords)","")
-histo([len(t) for t in tokens_rec],"Reconstruídos","Tokens completos tendem a ser maiores.")
-histo([len(t) for t in tokens_rec if t not in stop],"Reconstruídos (sem stopwords)","")
+histo([len(t) for t in tokens_wp], "WordPiece", "Tamanho em caracteres.")
+histo([len(t) for t in tokens_wp if t not in stop], "WordPiece (sem stopwords)", "")
+histo([len(t) for t in tokens_rec], "Reconstruídos", "Tokens completos tendem a ser maiores.")
+histo([len(t) for t in tokens_rec if t not in stop], "Reconstruídos (sem stopwords)", "")
 
 # Estatísticas detalhadas
 st.subheader("📊 Estatísticas detalhadas")
