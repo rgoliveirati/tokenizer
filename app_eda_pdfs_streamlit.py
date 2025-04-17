@@ -154,7 +154,7 @@ def resumo_groq(txt):
     r=requests.post("https://api.groq.com/openai/v1/chat/completions",
         headers={"Authorization":f"Bearer {key}","Content-Type":"application/json"},
         data=json.dumps({"model":"meta-llama/llama-4-scout-17b-16e-instruct",
-                         "messages":[{"role":"user","content":f"Resuma:\n\n{txt}"}],
+                         "messages":[{"role":"user","content":f"Resuma:\n\n{txt}, sempre no idioma português brasileiro."}],
                          "temperature":0.3,"max_tokens":1024}))
     return r.json()["choices"][0]["message"]["content"] if r.ok else "Erro Groq"
 
