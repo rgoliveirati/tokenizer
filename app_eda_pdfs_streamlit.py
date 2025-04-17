@@ -1,4 +1,4 @@
-# app_eda_pdfs_streamlit_completo_v2.py
+# app_eda_pdfs_streamlit_completo_groq.py
 
 import os
 import re
@@ -6,6 +6,8 @@ import string
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import requests
+import json
 from wordcloud import WordCloud
 import seaborn as sns
 import streamlit as st
@@ -72,15 +74,6 @@ def analisar_tamanho_tokens(tokens, title="Distribuição dos Tamanhos dos Token
     ax.set_ylabel("Frequência")
     st.pyplot(fig)
 
-def resumir_texto(texto, top_n=5):
-    vectorizer = TfidfVectorizer(stop_words='english')
-    frases = np.array(texto.split('.'))
-    tfidf_matrix = vectorizer.fit_transform(frases)
-    scores = np.asarray(tfidf_matrix.sum(axis=1)).ravel()
-    top_sentences_idx = scores.argsort()[-top_n:][::-1]
-    resumo = '. '.join(frases[top_sentences_idx])
-    return resumo.strip()
-
 def calcular_coerencia_topicos(modelo_lda, matriz_X):
     topico_distribuicao = modelo_lda.transform(matriz_X)
     similaridade = cosine_similarity(topico_distribuicao)
@@ -129,10 +122,33 @@ def reconstruir_tokens_com_offset(texto, tokenizer):
         palavras_reconstruidas.append(palavra_atual)
     return palavras_reconstruidas
 
+def resumir_com_groq(texto, api_key, modelo="meta-llama/llama-4-scout-17b-16e-instruct"):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    payload = {
+        "model": modelo,
+        "messages": [{
+            "role": "user",
+            "content": f"Resuma de forma clara e objetiva o seguinte texto:\n\n{texto}"
+        }],
+        "temperature": 0.3,
+        "max_tokens": 1024
+    }
+    response = requests.post(url, headers=headers, data=json.dumps(payload))
+    if response.status_code == 200:
+        resposta_json = response.json()
+        resumo = resposta_json['choices'][0]['message']['content']
+        return resumo.strip()
+    else:
+        raise Exception(f"Erro na chamada da API Groq: {response.status_code} - {response.text}")
+
 # === Streamlit app ===
 
-st.set_page_config(page_title="EDA PDFs - Upload + Tokens Reconstruídos", layout="wide")
-st.title("📄 Análise Técnica de PDFs via Upload + Reconstrução de Tokens")
+st.set_page_config(page_title="EDA PDFs + Groq Summarization", layout="wide")
+st.title("📄 Análise Técnica de PDFs com Upload + Reconstrução de Tokens + Resumo via Groq")
 
 uploaded_files = st.sidebar.file_uploader("📂 Faça upload de um ou mais PDFs", type=['pdf'], accept_multiple_files=True)
 
@@ -143,7 +159,6 @@ if not uploaded_files:
 file_names = [f.name for f in uploaded_files]
 selected_file = st.sidebar.selectbox("Escolha o PDF para análise:", file_names)
 
-# Processamento
 texts = []
 for f in uploaded_files:
     texto_original = extrair_texto_pdf(f)
@@ -168,7 +183,6 @@ frequencia_sem_stopwords = {word: freq for word, freq in contagem_tokens.items()
 frequencia_com_stopwords_reconstruidos = dict(contagem_tokens_reconstruidos)
 frequencia_sem_stopwords_reconstruidos = {word: freq for word, freq in contagem_tokens_reconstruidos.items() if word not in stop_words_set}
 
-# Layout
 st.header(f"📚 Análise do PDF: `{selected_file}`")
 
 col1, col2 = st.columns(2)
@@ -177,65 +191,38 @@ with col1:
 with col2:
     st.metric("🧩 Total de tokens WordPiece", len(tokens))
 
-col3, col4 = st.columns(2)
-with col3:
-    st.metric("📝 Palavras originais", len(texto_original_selected.split()))
-with col4:
-    resumo = resumir_texto(texto_limpo_selected, top_n=5)
-    st.write("**📜 Resumo automático:**")
-    st.success(resumo)
+st.subheader("📜 Resumo Inteligente via Groq")
+
+api_key_groq = st.secrets["GROQ_API_KEY"] if "GROQ_API_KEY" in st.secrets else st.text_input("Digite sua GROQ API KEY:", type="password")
+
+if api_key_groq:
+    with st.spinner("Chamando a API Groq..."):
+        try:
+            resumo = resumir_com_groq(texto_limpo_selected, api_key_groq)
+            st.success(resumo)
+        except Exception as e:
+            st.error(f"Erro: {e}")
+else:
+    st.warning("Insira a sua chave de API do Groq para gerar o resumo.")
 
 st.divider()
 
-st.subheader("📈 Frequência de Palavras (WordPiece)")
-
-st.write("🔹 Este gráfico mostra as palavras mais frequentes após a tokenização original (WordPiece). Fragmentos são considerados como unidades separadas.")
+st.subheader("📈 Frequência de Palavras (WordPiece e Reconstruídos)")
 
 plotar_top_palavras(frequencia_com_stopwords, "Top Palavras WordPiece (com stopwords)")
-plotar_top_palavras(frequencia_sem_stopwords, "Top Palavras WordPiece (sem stopwords)")
-
-st.subheader("📈 Frequência de Palavras (Tokens Reconstruídos)")
-
-st.write("🔹 Este gráfico mostra as palavras mais frequentes após a reconstrução de palavras unificadas usando os mapeamentos de offset.")
-
 plotar_top_palavras(frequencia_com_stopwords_reconstruidos, "Top Palavras Reconstruídas (com stopwords)")
-plotar_top_palavras(frequencia_sem_stopwords_reconstruidos, "Top Palavras Reconstruídas (sem stopwords)")
 
-st.subheader("☁️ Nuvens de Palavras WordPiece e Reconstruídas")
+st.subheader("☁️ Nuvens de Palavras (WordPiece e Reconstruídos)")
 
-st.write("🔹 As nuvens de palavras representam visualmente as palavras mais frequentes. Tamanhos maiores indicam maior frequência.")
-
-st.write("**☁️ WordPiece (com stopwords):**")
-gerar_nuvem_palavras(frequencia_com_stopwords, "Nuvem WordPiece com Stopwords")
-
-st.write("**☁️ WordPiece (sem stopwords):**")
 gerar_nuvem_palavras(frequencia_sem_stopwords, "Nuvem WordPiece sem Stopwords")
-
-st.write("**☁️ Reconstruídas (com stopwords):**")
-gerar_nuvem_palavras(frequencia_com_stopwords_reconstruidos, "Nuvem Reconstruída com Stopwords")
-
-st.write("**☁️ Reconstruídas (sem stopwords):**")
 gerar_nuvem_palavras(frequencia_sem_stopwords_reconstruidos, "Nuvem Reconstruída sem Stopwords")
 
 st.subheader("🔵 Distribuição do Tamanho dos Tokens")
 
-st.write("🔹 A distribuição mostra o comprimento dos tokens detectados, ajudando a identificar se há fragmentação ou palavras compostas.")
-
 analisar_tamanho_tokens(tokens, "Distribuição WordPiece")
 analisar_tamanho_tokens(tokens_reconstruidos, "Distribuição Tokens Reconstruídos")
 
-st.subheader("🧩 Comparativo de Tokens")
-
-col5, col6 = st.columns(2)
-with col5:
-    st.metric("Tokens WordPiece (originais)", len(tokens))
-    st.write(tokens[:20])
-with col6:
-    st.metric("Tokens Reconstruídos", len(tokens_reconstruidos))
-    st.write(tokens_reconstruidos[:20])
-
-st.divider()
-st.subheader("🧠 Modelagem Global de Tópicos (todos PDFs)")
+st.subheader("🧠 Modelagem Global de Tópicos")
 
 texts_limpos = [limpar_texto(t) for t in texts]
 topicos, coerencia = modelar_topicos_globais(texts_limpos, N_TOPICS)
@@ -245,7 +232,5 @@ for idx, topico in enumerate(topicos):
     st.info(f"**Tópico {idx+1}:** {', '.join(topico)}")
 
 st.subheader("🌳 Dendrograma de Palavras-Chave")
-
-st.write("🔹 O dendrograma agrupa palavras semanticamente próximas, revelando relações hierárquicas entre conceitos extraídos.")
 
 gerar_dendrograma(texts_limpos)
