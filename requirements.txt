@@ -1,0 +1,12 @@
+streamlit
+pandas
+numpy
+matplotlib
+seaborn
+wordcloud
+scikit-learn
+nltk
+PyPDF2
+transformers
+langdetect
+scipy
