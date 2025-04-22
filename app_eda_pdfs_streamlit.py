@@ -29,6 +29,8 @@ from transformers import BertTokenizer, BertTokenizerFast
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 from scipy.cluster.hierarchy import linkage, dendrogram
+import nltk
+nltk.download('punkt')
 
 # silencia avisos
 sns.set_theme(style="whitegrid")
