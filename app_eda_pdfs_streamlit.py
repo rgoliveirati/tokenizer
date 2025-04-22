@@ -29,9 +29,15 @@ from transformers import BertTokenizer, BertTokenizerFast
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
 from scipy.cluster.hierarchy import linkage, dendrogram
+import streamlit as st
+import pandas as pd
 import nltk
-nltk.download('punkt')
 
+# Baixar punkt se necessário
+try:
+    nltk.data.find('tokenizers/punkt')
+except LookupError:
+    nltk.download('punkt')
 # silencia avisos
 sns.set_theme(style="whitegrid")
 st.set_page_config(page_title="EDA PDFs + métricas", layout="wide")
