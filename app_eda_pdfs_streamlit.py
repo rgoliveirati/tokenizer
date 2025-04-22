@@ -8,7 +8,7 @@
 # • Chunking para BERT (512 tok)  
 # • Sumário Executivo automático  
 # • Gráficos comparativos  
-# • Resumo via Groq  
+# • Resumo via Groq (placeholder)
 # ---------------------------------------------------------------
 
 import re, string, json, requests
@@ -28,27 +28,15 @@ from langdetect import detect
 from transformers import BertTokenizer, BertTokenizerFast
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
-from scipy.cluster.hierarchy import linkage, dendrogram
-import streamlit as st
-import pandas as pd
-import nltk
+from scipy.cluster.hierarchy import linkage, dendrogram as scipy_dendrogram
 
 # Baixar punkt se necessário
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
+for pkg in ("punkt", "stopwords", "averaged_perceptron_tagger"):
+    nltk.download(pkg, quiet=True)
+
 # silencia avisos
 sns.set_theme(style="whitegrid")
 st.set_page_config(page_title="EDA PDFs + métricas", layout="wide")
-
-# 1) Baixar recursos NLTK (uma vez)
-for pkg in ("punkt","stopwords","averaged_perceptron_tagger"):
-    nltk.download(pkg, quiet=True)
-try:
-    nltk.data.find("taggers/averaged_perceptron_tagger_eng")
-except LookupError:
-    nltk.download("averaged_perceptron_tagger_eng", quiet=True)
 
 # 1.1) spaCy EN/PT (modelos “lg” opcionais)
 try: nlp_pt = spacy.load("pt_core_news_lg")
@@ -71,7 +59,6 @@ def extrair_texto_pdf(file):
     for p in PyPDF2.PdfReader(file).pages:
         textos.append(p.extract_text() or "")
     full = " ".join(textos)
-    # corta a partir de "References" ou "Referências" (case‑insensitive, linha inicial)
     parts = re.split(r'(?mi)^[ \t]*(references|referências)\b', full)
     return parts[0]
 
@@ -83,7 +70,7 @@ def limpar_texto(txt):
     t = re.sub(r"\s+", " ", txt.lower())
     return re.sub(f"[{re.escape(string.punctuation)}]", "", t).strip()
 
-# 4) Sentenças, tokens, PoS (spaCy lg se disponível)
+# 4) Sentenças, tokens, PoS
 def split_sentences(txt, lang):
     if lang.startswith("pt") and nlp_pt: return [s.text for s in nlp_pt(txt).sents]
     if lang.startswith("en") and nlp_en: return [s.text for s in nlp_en(txt).sents]
@@ -170,13 +157,41 @@ def metrics(txt_raw, toks, lang, label):
         "Chunks":         chunks
     }
 
-# 8) helpers visuais
-def plot_bar(df,col,title):
-    fig,ax=plt.subplots(figsize=(8,4))
-    df[col].plot.bar(ax=ax); ax.set_title(title)
-    ax.set_ylabel(col); plt.xticks(rotation=45); st.pyplot(fig)
+# 8) Funções auxiliares
+def barra(counter, title, xlabel):
+    fig, ax = plt.subplots(figsize=(8, 4))
+    itens = counter.most_common(10)
+    palavras, contagens = zip(*itens)
+    sns.barplot(x=list(palavras), y=list(contagens), ax=ax)
+    ax.set_title(title)
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Frequência")
+    plt.xticks(rotation=45)
+    st.pyplot(fig)
 
-# === Streamlit App ====
+def nuvem(counter, title, xlabel):
+    from wordcloud import WordCloud
+    wc = WordCloud(width=800, height=400, background_color='white')
+    wc.generate_from_frequencies(counter)
+    fig, ax = plt.subplots(figsize=(8, 4))
+    ax.imshow(wc, interpolation="bilinear")
+    ax.axis("off")
+    ax.set_title(title)
+    st.pyplot(fig)
+
+def dendro(texts, top_n=50):
+    vec = TfidfVectorizer(stop_words="english", max_features=top_n)
+    X = vec.fit_transform(texts).toarray()
+    linkage_matrix = linkage(X, method='ward')
+    fig, ax = plt.subplots(figsize=(10, 5))
+    scipy_dendrogram(linkage_matrix, labels=[f"Doc {i}" for i in range(len(texts))], ax=ax)
+    plt.title("Dendrograma de Similaridade dos PDFs")
+    st.pyplot(fig)
+
+def resumo_groq(texto):
+    return f"Resumo automático placeholder. Texto tem {len(texto.split())} palavras."
+
+# === Streamlit App ===
 st.title("📄 EDA de PDFs — sem referências")
 
 files = st.sidebar.file_uploader("Upload PDFs", type="pdf", accept_multiple_files=True)
@@ -238,9 +253,9 @@ st.dataframe(df, use_container_width=True)
 
 # gráficos comparativos
 st.subheader("📈 Gráficos comparativos")
-plot_bar(df, ["Sentenças","Tokens"], "Sentenças vs Tokens")
-plot_bar(df, ["Substantivos","Verbos","Preposições"], "Comparativo PoS")
-plot_bar(df, ["Chunks"], "Chunks necessários")
+barra(df["Sentenças"], "Sentenças", "")
+barra(df["Tokens"], "Tokens", "")
+barra(df[["Substantivos", "Verbos", "Preposições"]].sum(), "PoS (global)", "")
 
 # n‑grams, LDA, dendrograma e nuvens
 st.subheader("🔍 Frequências & n‑grams")
@@ -262,14 +277,17 @@ st.subheader("• Reconstruídos"); blocos(rec_fast,"Reconstr")
 # LDA global
 st.subheader("🧠 Tópicos (LDA global)")
 all_txt=[limpar_texto(extrair_texto_pdf(f)) for f in files]
-for i,top in enumerate(CountVectorizer(stop_words="english").fit(latent:=all_txt) 
-                         or [],1):
-    st.write(f"**Tópico {i}:** {_}")
+vectorizer = CountVectorizer(stop_words="english")
+X = vectorizer.fit_transform(all_txt)
+lda = LatentDirichletAllocation(n_components=N_TOPICS, random_state=42)
+topics = lda.fit_transform(X)
+feature_names = vectorizer.get_feature_names_out()
+for topic_idx, topic in enumerate(lda.components_):
+    st.write(f"**Tópico {topic_idx + 1}:** " + ", ".join([feature_names[i] for i in topic.argsort()[:-TOP_N - 1:-1]]))
 
 # dendrograma
 st.subheader("🌳 Dendrograma global")
-vec = TfidfVectorizer(stop_words="english",max_features=50)
-dendro([txt for txt in latent],top_n=50)
+dendro(all_txt, top_n=50)
 
 # resumo Groq
 st.subheader("📜 Resumo (Groq)")
