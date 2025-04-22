@@ -49,7 +49,7 @@ try: nlp_en = spacy.load("en_core_web_lg")
 except: nlp_en = None
 
 # 2) Configuração tokenizers & chunking
-MODEL_NAME   = "bert-base-uncased"
+MODEL_NAME   = "google-bert/bert-base-uncased"
 tok_fast     = BertTokenizerFast.from_pretrained(MODEL_NAME)
 tok_slow     = BertTokenizer.from_pretrained(MODEL_NAME)
 CHUNK_SIZE   = 512
