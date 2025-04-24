@@ -63,10 +63,25 @@ def limpar_texto(txt):
     return re.sub(f"[{re.escape(string.punctuation)}]", "", t).strip()
 
 def split_sentences(txt, lang):
-    if lang.startswith("pt") and nlp_pt: return [s.text for s in nlp_pt(txt).sents]
-    if lang.startswith("en") and nlp_en: return [s.text for s in nlp_en(txt).sents]
-    lang_nltk = "portuguese" if lang.lower().startswith("pt") else "english"
-    return sent_tokenize(txt, language=lang_nltk)
+    if lang.startswith("pt"):
+        try:
+            return [s.text for s in nlp_pt(txt).sents]
+        except:
+            nlp_fallback = spacy.blank("pt")
+            nlp_fallback.add_pipe("sentencizer")
+            return [s.text for s in nlp_fallback(txt).sents]
+    elif lang.startswith("en"):
+        try:
+            return [s.text for s in nlp_en(txt).sents]
+        except:
+            nlp_fallback = spacy.blank("en")
+            nlp_fallback.add_pipe("sentencizer")
+            return [s.text for s in nlp_fallback(txt).sents]
+    else:
+        nlp_fallback = spacy.blank("xx")
+        nlp_fallback.add_pipe("sentencizer")
+        return [s.text for s in nlp_fallback(txt).sents]
+
 
 def word_tokens(sent, lang):
     if lang.startswith("pt") and nlp_pt: return [t.text for t in nlp_pt(sent)]
